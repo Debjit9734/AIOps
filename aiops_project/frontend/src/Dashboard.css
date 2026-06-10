@@ -1,0 +1,108 @@
+.dashboard {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+  color: #102a43;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #d9e2ec;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.card h1,
+.card h2 {
+  margin-top: 0;
+}
+
+.muted {
+  color: #627d98;
+}
+
+.form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+input,
+select,
+button {
+  border-radius: 8px;
+  border: 1px solid #bcccdc;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+button {
+  border: none;
+  background: #0f4c81;
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button.secondary {
+  background: #334e68;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.error-inline {
+  color: #b42318;
+  margin-left: 8px;
+}
+
+.json-section {
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.json-section summary {
+  cursor: pointer;
+  padding: 10px;
+  background: #f0f4f8;
+  font-weight: 600;
+}
+
+.json-section pre {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  background: #fbfcfe;
+}
+
+.files-list {
+  padding: 10px;
+}
+
+.file-actions {
+  padding: 10px 12px 0;
+}
