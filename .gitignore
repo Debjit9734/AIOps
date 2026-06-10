@@ -1,0 +1,7 @@
+venv/
+myworld/
+__pycache__/
+*.pyc
+myworld
+trained_model.pkl
+temp_repos/
