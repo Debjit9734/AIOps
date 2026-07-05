@@ -185,7 +185,18 @@ def _analyze_node(package_json_path):
 
     dependencies = package_data.get("dependencies") or {}
     dev_dependencies = package_data.get("devDependencies") or {}
-    merged_keys = list(dict.fromkeys(list(dependencies.keys()) + list(dev_dependencies.keys())))
+
+    # NOTE: previously this only kept dependency *names* (dict keys), which
+    # discarded version info entirely. That made any downstream security
+    # analysis of Node projects meaningless, since there was no version
+    # string left to check against known-vulnerable ranges. We now emit
+    # "name@version_spec" strings (e.g. "express@^4.18.2") so the security
+    # analyzer has something real to work with. If a package appears in
+    # both dependencies and devDependencies, the runtime version wins.
+    merged = dict(dev_dependencies)
+    merged.update(dependencies)
+
+    dependency_strings = [f"{name}@{version}" for name, version in merged.items()]
 
     if "next" in dependencies or "next" in dev_dependencies:
         framework = "Next.js"
@@ -198,7 +209,7 @@ def _analyze_node(package_json_path):
 
     return {
         "framework": framework,
-        "dependencies": merged_keys,
+        "dependencies": dependency_strings,
     }
 
 
@@ -267,7 +278,9 @@ def _analyze_php_project(repo_path):
 
     require = composer_data.get("require") or {}
     require_dev = composer_data.get("require-dev") or {}
-    dependencies = list(dict.fromkeys(list(require.keys()) + list(require_dev.keys())))
+    merged = dict(require_dev)
+    merged.update(require)
+    dependencies = [f"{name}@{version}" for name, version in merged.items()]
 
     package_name = (composer_data.get("name") or "").lower()
     extra_text = json.dumps(composer_data).lower()

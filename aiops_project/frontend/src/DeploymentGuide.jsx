@@ -6,7 +6,6 @@ import DownloadZipButton from "./components/DownloadZipButton";
 import "./DeploymentGuide.css";
 
 const CLOUD_OPTIONS = ["aws", "gcp", "azure"];
-const STACK_OPTIONS = ["django", "flask", "fastapi", "node/express"];
 
 const ARCH_MAP = {
   aws: [
@@ -96,7 +95,7 @@ function composeFilesMap(deploymentFiles, configList) {
   const files = { ...(deploymentFiles || {}) };
   (configList || []).forEach((fileName) => {
     if (!files[fileName]) {
-      files[fileName] = `# ${fileName}\n# Add your ${fileName} content based on selected stack and cloud.\n`;
+      files[fileName] = `# ${fileName}\n# Add your ${fileName} content based on detected stack and cloud.\n`;
     }
   });
   return files;
@@ -129,7 +128,6 @@ function DeploymentGuide() {
   const [repoUrl, setRepoUrl] = useState("");
   const [cloud, setCloud] = useState("aws");
   const [detectedStack, setDetectedStack] = useState("");
-  const [stack, setStack] = useState("");
 
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [recommendLoading, setRecommendLoading] = useState(false);
@@ -158,7 +156,6 @@ function DeploymentGuide() {
       setRecommendData(null);
       const autoStack = normalizeDetectedStack(data?.insights?.framework);
       setDetectedStack(autoStack);
-      if (!stack && autoStack) setStack(autoStack);
     } catch (err) {
       setAnalyzeData(null);
       setDetectedStack("");
@@ -188,7 +185,7 @@ function DeploymentGuide() {
     }
   };
 
-  const activeStack = stack || detectedStack;
+  const activeStack = detectedStack;
   const architectureOptions = useMemo(() => {
     if (!activeStack) return [];
     const options = ARCH_MAP[cloud] || [];
@@ -203,11 +200,11 @@ function DeploymentGuide() {
     if (Array.isArray(apiSteps) && apiSteps.length) return apiSteps;
 
     const local = FALLBACK_GUIDES[activeStack] || [
-      "Analyze the repository or select a stack to generate a deployment checklist.",
+      "Analyze the repository to detect a stack and generate a deployment checklist.",
     ];
     return [
       `Target cloud: ${formatCloudLabel(cloud)}`,
-      `Preferred architecture: ${selectedArchitecture?.service || "Choose a stack to see architecture options"}`,
+      `Preferred architecture: ${selectedArchitecture?.service || "Waiting for detected stack"}`,
       ...local,
     ];
   }, [recommendData, activeStack, cloud, selectedArchitecture]);
@@ -221,10 +218,9 @@ function DeploymentGuide() {
   const currentStep = useMemo(() => {
     if (!repoUrl.trim()) return 1;
     if (!analyzeData) return 1;
-    if (!stack) return 2;
     if (!recommendData) return 3;
     return 5;
-  }, [repoUrl, analyzeData, stack, recommendData]);
+  }, [repoUrl, analyzeData, recommendData]);
 
   const heroStats = [
     { label: "Selected Cloud", value: formatCloudLabel(cloud) },
@@ -266,7 +262,7 @@ function DeploymentGuide() {
             currentStep={currentStep}
             steps={[
               "Select Cloud",
-              "Detect or Override Stack",
+              "Analyze Stack",
               "Review Architecture",
               "Deployment Checklist",
               "Generate Files",
@@ -308,18 +304,6 @@ function DeploymentGuide() {
               ))}
             </select>
           </label>
-
-          <label className="field">
-            <span>Tech Stack</span>
-            <select value={stack} onChange={(e) => setStack(e.target.value)}>
-              {!stack && <option value="">Auto-detected after Analyze</option>}
-              {STACK_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
 
         <div className="action-row">
@@ -350,14 +334,12 @@ function DeploymentGuide() {
         )}
         {detectedStack && (
           <p className="hint">
-            Auto-detected stack: <strong>{detectedStack}</strong>. You can still override it before
-            recommendation.
+            Auto-detected stack: <strong>{detectedStack}</strong>.
           </p>
         )}
         {analyzeData && !detectedStack && (
           <p className="hint">
-            Analysis finished, but the stack could not be auto-detected. Choose it manually to keep
-            going.
+            Analysis finished, but the stack could not be auto-detected from the framework response.
           </p>
         )}
         {error && <p className="error">{error}</p>}
@@ -376,7 +358,7 @@ function DeploymentGuide() {
             <p className="muted">
               {activeStack
                 ? "No architecture recommendation yet."
-                : "Run Analyze or choose a stack to unlock architecture recommendations."}
+                : "Run Analyze to unlock architecture recommendations."}
             </p>
           )}
 
