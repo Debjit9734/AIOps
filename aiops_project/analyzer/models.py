@@ -1,6 +1,29 @@
 from django.db import models
+from django.conf import settings
 
 # Create your models here.
+
+
+class AuthToken(models.Model):
+    key = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='api_tokens')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Token for {self.user}"
+
+
+class DailyAnalyzeUsage(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='daily_analyze_usage')
+    date = models.DateField()
+    count = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'date')
+
+    def __str__(self):
+        return f"{self.user} analyzed {self.count} times on {self.date}"
 
 
 class ProjectRepo(models.Model):

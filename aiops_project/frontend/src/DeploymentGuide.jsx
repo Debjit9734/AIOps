@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { analyzeRepo, recommendMl } from "./api";
+import React, { useEffect, useMemo, useState } from "react";
+import { analyzeRepo, getCurrentUser, recommendMl } from "./api";
 import Stepper from "./components/Stepper";
 import CodeBlock from "./components/CodeBlock";
 import DownloadZipButton from "./components/DownloadZipButton";
@@ -10,25 +10,30 @@ const CLOUD_OPTIONS = ["aws", "gcp", "azure"];
 const ARCH_MAP = {
   aws: [
     {
+      service: "EC2 + Docker",
+      when: "Best beginner path because you can see every server, port, and command directly.",
+      fit: ["django", "flask", "fastapi", "node/express"],
+    },
+    {
       service: "ECS Fargate",
-      when: "Best default for containerized APIs with low ops overhead.",
+      when: "Good next step after the manual EC2 deployment is understood.",
       fit: ["django", "flask", "fastapi", "node/express"],
     },
     {
       service: "App Runner",
-      when: "Fastest managed runtime for simple web services.",
+      when: "Fast managed runtime for simple web services after the basics are clear.",
       fit: ["flask", "fastapi", "node/express"],
-    },
-    {
-      service: "EC2 + Docker",
-      when: "Custom networking, custom AMI, or long-running worker control.",
-      fit: ["django", "flask", "fastapi", "node/express"],
     },
   ],
   gcp: [
     {
+      service: "Compute Engine VM",
+      when: "Best beginner path for learning server setup, firewall rules, SSH, and app startup.",
+      fit: ["django", "flask", "fastapi", "node/express"],
+    },
+    {
       service: "Cloud Run",
-      when: "Serverless container deployment with autoscaling.",
+      when: "Good next step for serverless container deployment after Docker is working.",
       fit: ["django", "flask", "fastapi", "node/express"],
     },
     {
@@ -39,8 +44,13 @@ const ARCH_MAP = {
   ],
   azure: [
     {
+      service: "Azure Virtual Machine",
+      when: "Best beginner path for learning VM creation, NSG ports, SSH, and Linux deployment.",
+      fit: ["django", "flask", "fastapi", "node/express"],
+    },
+    {
       service: "Azure App Service",
-      when: "Straightforward web app hosting with managed platform features.",
+      when: "Good next step for managed web app hosting once the manual path is clear.",
       fit: ["django", "flask", "fastapi", "node/express"],
     },
     {
@@ -48,37 +58,6 @@ const ARCH_MAP = {
       when: "Kubernetes control for advanced networking and workloads.",
       fit: ["django", "flask", "fastapi", "node/express"],
     },
-  ],
-};
-
-const FALLBACK_GUIDES = {
-  django: [
-    "Create production environment variables and secret management plan.",
-    "Build Docker image and run Django migrations.",
-    "Collect static assets and validate health endpoint.",
-    "Deploy service and configure load balancer or reverse proxy.",
-    "Enable monitoring, alerts, and log aggregation.",
-  ],
-  flask: [
-    "Define runtime variables and secrets.",
-    "Build container image and run smoke test.",
-    "Deploy to managed runtime and expose HTTPS endpoint.",
-    "Configure autoscaling and request timeout limits.",
-    "Enable observability and access logging.",
-  ],
-  fastapi: [
-    "Prepare environment variables and service account credentials.",
-    "Containerize app and run startup checks.",
-    "Deploy API service and configure ingress.",
-    "Tune concurrency and autoscaling settings.",
-    "Add metrics, tracing, and error monitoring.",
-  ],
-  "node/express": [
-    "Set environment variables and secret config.",
-    "Build container image and run Node production startup test.",
-    "Deploy service and configure domain and TLS.",
-    "Apply autoscaling and resource limits.",
-    "Configure centralized logs and alerting.",
   ],
 };
 
@@ -115,6 +94,18 @@ function formatCloudLabel(cloud) {
   return cloud.toUpperCase();
 }
 
+function titleFromRecommendationStep(step, index) {
+  const text = String(step || "").trim();
+  if (!text) return `Recommendation step ${index + 1}`;
+  return text.replace(/[.!?]\s*$/, "");
+}
+
+function normalizeRunbookTitle(title, details, index) {
+  const text = String(title || "").trim();
+  if (text && !text.toLowerCase().startsWith("recommendation step")) return text;
+  return titleFromRecommendationStep(details?.[0], index);
+}
+
 function MetricTile({ label, value, accent }) {
   return (
     <article className={`metric-tile ${accent}`}>
@@ -125,6 +116,7 @@ function MetricTile({ label, value, accent }) {
 }
 
 function DeploymentGuide() {
+  const [authInfo, setAuthInfo] = useState(null);
   const [repoUrl, setRepoUrl] = useState("");
   const [cloud, setCloud] = useState("aws");
   const [detectedStack, setDetectedStack] = useState("");
@@ -135,8 +127,26 @@ function DeploymentGuide() {
 
   const [analyzeData, setAnalyzeData] = useState(null);
   const [recommendData, setRecommendData] = useState(null);
+  const [selectedArchitectureService, setSelectedArchitectureService] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    getCurrentUser()
+      .then((data) => {
+        if (active) setAuthInfo(data);
+      })
+      .catch(() => {
+        if (active) setAuthInfo(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const validateRepo = () => {
+    if (!authInfo?.user) return "Please login before analyzing a repository.";
     if (!repoUrl.trim()) return "Please enter a GitHub repository URL.";
     return "";
   };
@@ -156,6 +166,12 @@ function DeploymentGuide() {
       setRecommendData(null);
       const autoStack = normalizeDetectedStack(data?.insights?.framework);
       setDetectedStack(autoStack);
+      if (data?.rate_limit) {
+        setAuthInfo((current) => ({
+          ...(current || {}),
+          rate_limit: data.rate_limit,
+        }));
+      }
     } catch (err) {
       setAnalyzeData(null);
       setDetectedStack("");
@@ -175,7 +191,11 @@ function DeploymentGuide() {
     setRecommendLoading(true);
     setError("");
     try {
-      const data = await recommendMl(analyzeData.analysis_id, cloud);
+      const data = await recommendMl(
+        analyzeData.analysis_id,
+        cloud,
+        selectedArchitecture?.service
+      );
       setRecommendData(data);
     } catch (err) {
       setRecommendData(null);
@@ -192,22 +212,66 @@ function DeploymentGuide() {
     return options.filter((item) => item.fit.includes(activeStack));
   }, [cloud, activeStack]);
 
-  const selectedArchitecture = architectureOptions[0] || null;
+  useEffect(() => {
+    if (!architectureOptions.length) {
+      setSelectedArchitectureService("");
+      return;
+    }
+
+    const selectedStillAvailable = architectureOptions.some(
+      (option) => option.service === selectedArchitectureService
+    );
+
+    if (!selectedStillAvailable) {
+      setSelectedArchitectureService(architectureOptions[0].service);
+    }
+  }, [architectureOptions, selectedArchitectureService]);
+
+  const selectedArchitecture =
+    architectureOptions.find((option) => option.service === selectedArchitectureService)
+    || architectureOptions[0]
+    || null;
   const predictedResources = recommendData?.predicted_resources || null;
 
   const checklist = useMemo(() => {
-    const apiSteps = recommendData?.deployment_steps;
-    if (Array.isArray(apiSteps) && apiSteps.length) return apiSteps;
+    if (!recommendData) {
+      return [
+        {
+          title: "Generate the recommendation first",
+          details: [
+            "Run Analyze Repository to detect the stack, then click Generate Recommendation.",
+            "The detailed runbook shown here will come from the ML/API recommendation for this project and selected cloud.",
+          ],
+        },
+      ];
+    }
 
-    const local = FALLBACK_GUIDES[activeStack] || [
-      "Analyze the repository to detect a stack and generate a deployment checklist.",
-    ];
+    if (Array.isArray(recommendData.deployment_runbook) && recommendData.deployment_runbook.length) {
+      return recommendData.deployment_runbook.map((step, index) => ({
+        title: normalizeRunbookTitle(step.title, step.details, index),
+        details: Array.isArray(step.details) && step.details.length ? step.details : [String(step)],
+        commands: Array.isArray(step.commands) ? step.commands : [],
+      }));
+    }
+
+    if (Array.isArray(recommendData.deployment_steps) && recommendData.deployment_steps.length) {
+      return recommendData.deployment_steps.map((step, index) => ({
+        title: titleFromRecommendationStep(step, index),
+        details: [step],
+        commands: [],
+      }));
+    }
+
     return [
-      `Target cloud: ${formatCloudLabel(cloud)}`,
-      `Preferred architecture: ${selectedArchitecture?.service || "Waiting for detected stack"}`,
-      ...local,
+      {
+        title: "No runbook returned",
+        details: [
+          "The recommendation API completed, but it did not return deployment_runbook or deployment_steps.",
+          "Check the raw recommendation response below for troubleshooting.",
+        ],
+      },
     ];
-  }, [recommendData, activeStack, cloud, selectedArchitecture]);
+  }, [recommendData]);
 
   const requiredFiles = recommendData?.configuration_files_needed || [];
   const generatedFiles = useMemo(
@@ -225,7 +289,12 @@ function DeploymentGuide() {
   const heroStats = [
     { label: "Selected Cloud", value: formatCloudLabel(cloud) },
     { label: "Detected Stack", value: analyzeData?.insights?.framework || "Waiting" },
-    { label: "Preferred Runtime", value: selectedArchitecture?.service || "Pending" },
+    {
+      label: "Analyze Quota",
+      value: authInfo?.rate_limit?.is_admin
+        ? "Admin"
+        : `${authInfo?.rate_limit?.remaining ?? 3}/3 left`,
+    },
   ];
 
   return (
@@ -235,8 +304,8 @@ function DeploymentGuide() {
           <p className="eyebrow">AIOps Deployment Studio</p>
           <h1>From raw repository to a deployment blueprint that actually looks ready.</h1>
           <p className="hero-text">
-            Analyze the repo, surface the likely stack, generate an architecture direction, and
-            package the files your team needs to ship with more confidence.
+            Analyze the repo, detect the stack, and generate a beginner-friendly cloud deployment
+            path with server choices, ports, SSH steps, commands, and generated files.
           </p>
           <div className="hero-stats">
             {heroStats.map((item) => (
@@ -264,7 +333,7 @@ function DeploymentGuide() {
               "Select Cloud",
               "Analyze Stack",
               "Review Architecture",
-              "Deployment Checklist",
+              "Beginner Runbook",
               "Generate Files",
             ]}
           />
@@ -279,7 +348,7 @@ function DeploymentGuide() {
           </div>
           <div className="pulse-chip">
             <span className={analyzeData ? "pulse on" : "pulse"} />
-            {analyzeData ? "Analysis Ready" : "Awaiting Repo"}
+            {authInfo?.user ? `${authInfo.user.username} signed in` : "Login Required"}
           </div>
         </div>
 
@@ -320,6 +389,18 @@ function DeploymentGuide() {
           </button>
         </div>
 
+        {!authInfo?.user && (
+          <div className="status-card auth">
+            <div>
+              <strong>Login required for analysis.</strong>
+              <p>Create an account so the app can track your 3 daily analyses.</p>
+            </div>
+            <a className="btn btn-ghost" href="/login">
+              Login
+            </a>
+          </div>
+        )}
+
         {analyzeData && (
           <div className="status-card success">
             <div>
@@ -350,34 +431,41 @@ function DeploymentGuide() {
           <div className="section-heading">
             <div>
               <p className="section-tag">Architecture Signal</p>
-              <h2>Pick the lane with the best fit for this stack.</h2>
+              <h2>Start with the clearest beginner path for this stack.</h2>
             </div>
           </div>
 
           {!selectedArchitecture && (
             <p className="muted">
               {activeStack
-                ? "No architecture recommendation yet."
+                ? "Run Recommend to load the API architecture recommendation."
                 : "Run Analyze to unlock architecture recommendations."}
             </p>
           )}
 
           {selectedArchitecture && (
             <div className="arch-grid">
-              {architectureOptions.map((option) => (
-                <article
+              {architectureOptions.map((option, index) => {
+                const isSelected = option.service === selectedArchitecture.service;
+
+                return (
+                <button
+                  type="button"
                   key={option.service}
-                  className={`arch-card ${option.service === selectedArchitecture.service ? "top" : ""}`}
+                  className={`arch-card ${isSelected ? "top" : ""}`}
+                  onClick={() => setSelectedArchitectureService(option.service)}
+                  aria-pressed={isSelected}
                 >
                   <div className="arch-meta">
                     <span className="arch-badge">
-                      {option.service === selectedArchitecture.service ? "Primary Fit" : "Alternate"}
+                      {isSelected ? "Selected" : index === 0 ? "Primary Fit" : "Alternate"}
                     </span>
                     <h3>{option.service}</h3>
                   </div>
                   <p>{option.when}</p>
-                </article>
-              ))}
+                </button>
+                );
+              })}
             </div>
           )}
         </section>
@@ -386,7 +474,7 @@ function DeploymentGuide() {
           <div className="section-heading">
             <div>
               <p className="section-tag">Resource Pulse</p>
-              <h2>Infrastructure sizing at a glance.</h2>
+              <h2>Beginner server sizing at a glance.</h2>
             </div>
           </div>
 
@@ -399,7 +487,7 @@ function DeploymentGuide() {
           ) : (
             <div className="metrics-empty">
               <strong>No resource recommendation yet.</strong>
-              <p>Run Recommend to generate estimated CPU, RAM, and storage needs.</p>
+              <p>Run Recommend to estimate CPU, RAM, storage, and starter server size.</p>
             </div>
           )}
         </section>
@@ -409,14 +497,28 @@ function DeploymentGuide() {
         <div className="section-heading">
           <div>
             <p className="section-tag">Execution Sequence</p>
-            <h2>Turn the recommendation into a deployment runbook.</h2>
+            <h2>API-generated deployment runbook for {formatCloudLabel(cloud)}.</h2>
           </div>
         </div>
         <ol className="timeline">
           {checklist.map((step, idx) => (
-            <li key={`${idx}-${step}`} className="timeline-item">
+            <li key={`${idx}-${step.title}`} className="timeline-item">
               <span className="timeline-dot">{idx + 1}</span>
-              <div className="timeline-content">{step}</div>
+              <div className="timeline-content">
+                <h3>{step.title}</h3>
+                <ul>
+                  {step.details.map((detail, detailIndex) => (
+                    <li key={`${step.title}-${detailIndex}`}>{detail}</li>
+                  ))}
+                </ul>
+                {step.commands && (
+                  <div className="command-list">
+                    {step.commands.map((command) => (
+                      <code key={command}>{command}</code>
+                    ))}
+                  </div>
+                )}
+              </div>
             </li>
           ))}
         </ol>
@@ -428,8 +530,7 @@ function DeploymentGuide() {
             <p className="section-tag">Output Bundle</p>
             <h2>Download and inspect the generated deployment files.</h2>
             <p className="muted">
-              Missing files get placeholder content locally so the bundle stays useful even before
-              the API returns final content.
+              Use these files after the beginner runbook explains where they fit in the cloud setup.
             </p>
           </div>
           <DownloadZipButton files={generatedFiles} zipName="deployment-guide-files.zip" />
@@ -439,7 +540,7 @@ function DeploymentGuide() {
           {Object.entries(generatedFiles).length === 0 && (
             <div className="files-empty">
               <strong>No files generated yet.</strong>
-              <p>Run Recommend to produce deployment artifacts for the selected target.</p>
+              <p>Run Recommend to produce deployment artifacts for the selected cloud target.</p>
             </div>
           )}
           {Object.entries(generatedFiles).map(([filename, content]) => (
