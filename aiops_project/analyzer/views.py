@@ -20,10 +20,14 @@ from .utils.deployment_plans import (
     generate_deployment_plan_payload,
     validate_target,
 )
+from .utils.deployment_plans.planner import DEPLOYMENT_META
 from .utils.deployment_generator import (
     generate_django_dockerfile,
     generate_nginx_conf,
     generate_django_compose,
+    generate_fastapi_dockerfile,
+    generate_fastapi_compose,
+    generate_fastapi_nginx_conf,
 )
 
 ANALYSIS_CACHE_PREFIX = "analysis:"
@@ -347,6 +351,7 @@ def recommend_deployment_ml(request):
 
     analysis_id = request.data.get("analysis_id")
     cloud = request.data.get("cloud")
+    selected_architecture = request.data.get("selected_architecture")
 
     if not analysis_id or not cloud:
         return Response(
@@ -376,6 +381,7 @@ def recommend_deployment_ml(request):
         features,
         cloud,
         repo_url=repo_url,
+        selected_architecture=selected_architecture,
     )
 
     resources = (
@@ -392,6 +398,12 @@ def recommend_deployment_ml(request):
             "Dockerfile": generate_django_dockerfile(),
             "nginx.conf": generate_nginx_conf(),
             "docker-compose.yml": generate_django_compose(),
+        }
+    elif "fastapi" in framework:
+        deployment_files = {
+            "Dockerfile": generate_fastapi_dockerfile(),
+            "nginx.conf": generate_fastapi_nginx_conf(),
+            "docker-compose.yml": generate_fastapi_compose(),
         }
 
     return Response(
@@ -483,6 +495,7 @@ def deployment_plan(request):
         features=features,
         cloud=cloud,
         repo_url=repo_url,
+        selected_architecture=DEPLOYMENT_META[target["deployment"]]["name"],
     )
 
     plan_payload, plan_error = generate_deployment_plan_payload(

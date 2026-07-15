@@ -238,6 +238,36 @@ def _is_virtual_machine_architecture(selected_architecture):
     )
 
 
+def _architecture_conflicts_with_selection(data, selected_architecture):
+    if not selected_architecture:
+        return False
+
+    selected = selected_architecture.lower()
+    returned_parts = [
+        str(data.get("architecture") or ""),
+        " ".join(str(step) for step in data.get("deployment_steps") or []),
+        json.dumps(data.get("deployment_runbook") or []),
+    ]
+    returned = " ".join(returned_parts).lower()
+
+    if "ec2" in selected or "docker" in selected:
+        return any(term in returned for term in ("ecs", "fargate", "app runner"))
+    if "fargate" in selected:
+        return "ec2" in returned and "fargate" not in returned
+    if "app runner" in selected:
+        return "ec2" in returned or "fargate" in returned
+    if "cloud run" in selected:
+        return "compute engine" in returned or "gke" in returned
+    if "gke" in selected:
+        return "cloud run" in returned or "compute engine" in returned
+    if "app service" in selected:
+        return "aks" in returned or "virtual machine" in returned
+    if "aks" in selected:
+        return "app service" in returned or "virtual machine" in returned
+
+    return False
+
+
 def _build_managed_architecture_runbook(
     framework,
     cloud,
@@ -419,6 +449,16 @@ def _build_beginner_runbook(framework, cloud, resources, deployment_steps, repo_
         "sudo apt upgrade -y",
         "sudo apt install -y git curl nginx",
     ]
+    use_docker = "docker" in (selected_architecture or "").lower()
+    if use_docker:
+        install_commands.extend(
+            [
+                "sudo apt install -y ca-certificates",
+                "curl -fsSL https://get.docker.com | sudo sh",
+                "sudo usermod -aG docker $USER",
+                "docker --version",
+            ]
+        )
     if stack_key == "node/express":
         install_commands.extend(
             [
@@ -513,7 +553,11 @@ def _build_beginner_runbook(framework, cloud, resources, deployment_steps, repo_
                 f"Run the dependency commands for {runtime['label']} from inside the cloned project folder.",
                 "Fix any missing package errors before continuing. The app should install cleanly before you try to run it.",
             ],
-            "commands": runtime["install"],
+            "commands": (
+                ["docker build -t aiops-app ."]
+                if use_docker
+                else runtime["install"]
+            ),
         },
         {
             "title": f"Start the application with {runtime['process']}",
@@ -522,7 +566,11 @@ def _build_beginner_runbook(framework, cloud, resources, deployment_steps, repo_
                 f"The app should listen on 0.0.0.0:{runtime['port']} so the cloud server can receive traffic.",
                 f"Test it in your browser with http://<{cloud_profile['address_name'].lower().replace(' ', '-')}>:{runtime['port']}.",
             ],
-            "commands": runtime["start"],
+            "commands": (
+                [f"docker run -d --name aiops-app --restart unless-stopped -p {runtime['port']}:{runtime['port']} --env-file .env aiops-app"]
+                if use_docker
+                else runtime["start"]
+            ),
         },
         {
             "title": "Configure Nginx reverse proxy",
@@ -760,6 +808,26 @@ Do not create a separate generic guide that conflicts with deployment_steps.
         data["predicted_resources"] = _sanity_check_resources(predicted, features)
         resources = data["predicted_resources"] or _rule_based_resource_estimate(features)
         data["architecture"] = data.get("architecture") or architecture
+        if _architecture_conflicts_with_selection(data, selected_architecture):
+            data["architecture"] = architecture
+            data["deployment_steps"] = [
+                "Launch a small Ubuntu EC2 instance.",
+                "Install Docker and Nginx on the EC2 instance.",
+                "Clone the GitHub repository on the server.",
+                "Build the Docker image for the detected application stack.",
+                "Run the container on the application port.",
+                "Configure Nginx as a reverse proxy from port 80 to the container.",
+                "Open only the required EC2 security group ports.",
+                "Verify the public URL and check container logs.",
+            ]
+            data["deployment_runbook"] = _build_beginner_runbook(
+                framework=framework,
+                cloud=cloud,
+                resources=resources,
+                deployment_steps=data["deployment_steps"],
+                repo_url=repo_url,
+                selected_architecture=selected_architecture,
+            )
         data = _ensure_beginner_runbook(
             data,
             framework,
