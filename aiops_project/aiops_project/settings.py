@@ -4,6 +4,8 @@ Django settings for aiops_project project.
 
 import os
 from pathlib import Path
+from urllib.parse import parse_qsl, urlparse
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,18 +20,27 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-li%g3_62%_i1z7vi_v579l7d#&c$a+)#ys!$$rs*2(3$)25y*('
+SECRET_KEY = os.environ.get(
+    "SECRET_KEY",
+    "django-insecure-li%g3_62%_i1z7vi_v579l7d#&c$a+)#ys!$$rs*2(3$)25y*(",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DEBUG", "1").strip().lower() in {"1", "true", "yes", "on"}
+DEBUG = os.environ.get(
+    "DEBUG",
+    "0" if os.environ.get("RENDER") else "1",
+).strip().lower() in {"1", "true", "yes", "on"}
 
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+    for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,.onrender.com").split(",")
     if host.strip()
 ]
 
-USE_WHITENOISE = os.environ.get("USE_WHITENOISE", "0").strip().lower() in {"1", "true", "yes", "on"}
+USE_WHITENOISE = os.environ.get(
+    "USE_WHITENOISE",
+    "1" if os.environ.get("RENDER") else "0",
+).strip().lower() in {"1", "true", "yes", "on"}
 REDIS_URL = os.environ.get("REDIS_URL", "").strip()
 
 
@@ -91,16 +102,36 @@ WSGI_APPLICATION = 'aiops_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'aiopsdb',
-        'USER': 'postgres',
-        'PASSWORD': 'Debj1tD@$',
-        'HOST': 'localhost',
-        'PORT': '5432',
+def _database_from_url(database_url):
+    parsed = urlparse(database_url)
+    options = dict(parse_qsl(parsed.query))
+
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": parsed.path.lstrip("/"),
+        "USER": parsed.username or "",
+        "PASSWORD": parsed.password or "",
+        "HOST": parsed.hostname or "",
+        "PORT": str(parsed.port or ""),
+        "OPTIONS": options,
     }
-}
+
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+
+if DATABASE_URL:
+    DATABASES = {"default": _database_from_url(DATABASE_URL)}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("DB_NAME", "aiopsdb"),
+            "USER": os.environ.get("DB_USER", "postgres"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", "Debj1tD@$"),
+            "HOST": os.environ.get("DB_HOST", "localhost"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
+        }
+    }
 
 if REDIS_URL:
     CACHES = {
@@ -154,7 +185,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = '/assets/'
-STATICFILES_DIRS = [BASE_DIR / 'frontend' / 'dist' / 'assets']
+STATICFILES_DIRS = [REACT_ASSETS_DIR] if REACT_ASSETS_DIR.exists() else []
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 if USE_WHITENOISE:
@@ -174,4 +205,3 @@ if DEBUG:
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
